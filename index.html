@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event Horizon</title>
+<style>
+  :root {
+    --fg: #f4ead8;
+    --dim: rgba(244, 234, 216, 0.55);
+    --gold: #ffb347;
+    --danger: #ff3d6e;
+    --prey: #5ab8ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #02030a; color: var(--fg);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    user-select: none; -webkit-user-select: none;
+  }
+  canvas { position: fixed; inset: 0; display: block; cursor: crosshair; }
+  #hud {
+    position: fixed; top: 16px; left: 16px; pointer-events: none;
+    font-size: 13px; letter-spacing: 0.08em; line-height: 1.6;
+    text-shadow: 0 0 8px rgba(0,0,0,0.9);
+  }
+  #hud .big { font-size: 26px; color: var(--gold); letter-spacing: 0.04em; }
+  #hud .tier { color: var(--dim); text-transform: uppercase; }
+  #board {
+    position: fixed; top: 16px; right: 16px; pointer-events: none;
+    font-size: 12px; line-height: 1.7; text-align: right; min-width: 180px;
+    text-shadow: 0 0 8px rgba(0,0,0,0.9);
+  }
+  #board .h { color: var(--dim); letter-spacing: 0.2em; margin-bottom: 2px; }
+  #board .me { color: var(--gold); }
+  #board .danger { color: var(--danger); }
+  #board .prey { color: var(--prey); }
+  #banner {
+    position: fixed; left: 0; right: 0; top: 22%; text-align: center;
+    pointer-events: none; font-size: clamp(22px, 5vw, 48px); letter-spacing: 0.35em;
+    color: var(--gold); opacity: 0; transition: opacity 0.5s;
+    text-shadow: 0 0 24px rgba(255, 160, 60, 0.8);
+  }
+  #banner small { display: block; font-size: 13px; letter-spacing: 0.3em; color: var(--dim); margin-top: 10px; }
+  #overlay {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: space-between; text-align: center;
+    padding: 13vh 16px 9vh;
+    background: radial-gradient(ellipse at center, rgba(2,3,10,0) 0%, rgba(2,3,10,0.75) 75%);
+    cursor: pointer;
+  }
+  #overlay.hidden { display: none; }
+  #overlay h1 {
+    margin: 0; font-weight: 300; font-size: clamp(34px, 9vw, 92px);
+    letter-spacing: 0.3em; padding-left: 0.3em;
+    background: linear-gradient(180deg, #fff6e0, #ffb347 55%, #b0401a);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 24px rgba(255, 140, 40, 0.45));
+  }
+  #overlay p { color: var(--dim); letter-spacing: 0.15em; font-size: 13px; line-height: 2; margin: 18px 0 0; }
+  #overlay .cta { color: var(--fg); margin-top: 34px; font-size: 15px; animation: pulse 1.6s infinite; }
+  #overlay .stat { color: var(--gold); font-size: 20px; letter-spacing: 0.1em; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .popup {
+    position: fixed; transform: translate(-50%, -50%); pointer-events: none;
+    font-size: 18px; font-weight: 700; letter-spacing: 0.08em; white-space: nowrap;
+    color: #fff; text-shadow: 0 0 10px #ff4fd8, 0 0 2px #000;
+    animation: popup 1.6s ease-out forwards;
+  }
+  @keyframes popup {
+    0% { opacity: 0; margin-top: 0; transform: translate(-50%, -50%) scale(0.6) rotate(-6deg); }
+    12% { opacity: 1; transform: translate(-50%, -50%) scale(1.15) rotate(3deg); }
+    100% { opacity: 0; margin-top: -70px; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+  }
+  #hud .lives { color: var(--danger); font-size: 16px; letter-spacing: 0.2em; }
+  #hud .lives .lost { color: rgba(255,255,255,0.15); }
+  #board .bossname { color: #c38bff; font-weight: 700; }
+  #goal {
+    position: fixed; left: 50%; bottom: 38px; transform: translateX(-50%);
+    width: min(440px, calc(100vw - 32px)); pointer-events: none; text-align: center;
+    font-size: 11px; letter-spacing: 0.18em; color: var(--dim);
+  }
+  #goal .label { margin-bottom: 6px; }
+  #goal .bar { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+  #goal .bar i { display: block; height: 100%; background: var(--gold); transition: width 0.25s; }
+  #goal .bar.boss i { background: #b46bff; }
+  #goal .bar.ready i { background: #7dffb0; animation: pulse 0.6s infinite; }
+  #overlay .best { color: var(--gold); opacity: 0.8; }
+  #pause {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(2,3,10,0.6); font-size: 28px; letter-spacing: 0.5em; cursor: pointer;
+  }
+  #pause.hidden { display: none; }
+  #pause small { display: block; font-size: 12px; letter-spacing: 0.25em; color: var(--dim); margin-top: 14px; text-align: center; }
+  body:not(.playing) #goal { display: none; }
+  #hint {
+    position: fixed; bottom: 14px; left: 0; right: 0; text-align: center;
+    font-size: 11px; letter-spacing: 0.2em; color: var(--dim); pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="hud"></div>
+<div id="board"></div>
+<div id="banner"></div>
+<div id="goal"></div>
+<div id="hint">ARROWS / WASD / MOUSE — MOVE &nbsp;·&nbsp; HOLD CLICK / SPACE — BOOST (COSTS MASS) &nbsp;·&nbsp; P — PAUSE</div>
+<div id="pause" class="hidden"><div>PAUSED<small>PRESS P OR CLICK TO RESUME</small></div></div>
+<div id="overlay">
+  <h1>EVENT HORIZON</h1>
+  <div><p>You are a black hole.<br>Devour anything smaller than you. Tear apart anything bigger.<br>Cows, pizza and rubber ducks are fair game.<br>Avoid the <span style="color:var(--danger)">red</span> giants. Hunt the <span style="color:var(--prey)">blue</span> ones.<br>Overfed holes go <span style="color:#bfe6ff">QUASAR</span> and shrink — strike then.<br>Climb 4 ranks, then devour <span style="color:#c38bff">THE GREAT ATTRACTOR</span>. You have 3 lives.</p>
+  <p class="best" id="titleBest"></p>
+  <div class="cta">CLICK TO BEGIN</div></div>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
