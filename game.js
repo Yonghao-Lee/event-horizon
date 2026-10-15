@@ -583,6 +583,7 @@ let winT = 0, winReset = false, winStats = null;
 const flashEl = document.getElementById('flash');
 const START_LIVES = 3;
 const BOSS_NAME = 'THE GREAT ATTRACTOR';
+const BOSS_START = 3.0;               // boss mass relative to the player when it appears
 const BOSS_EAT_RATIO = 1.08 * 1.08;  // mass ratio needed to swallow the boss
 
 const BEST_KEY = 'eventHorizon.best';
@@ -645,7 +646,7 @@ function spawnObject(x, y, refR) {
 function spawnRival(minD, maxD) {
   const a = rand(0, TAU), d = rand(minD, maxD);
   // Mix of prey and predators around the player's size.
-  const big = Math.random() < 0.32 + tierIdx * 0.05;
+  const big = Math.random() < 0.4 + tierIdx * 0.06;
   const k = big ? rand(1.2, 2.2 + tierIdx * 0.1) : rand(0.25, 0.85);
   const dist = Math.max(d, (player.r + radiusOf(player.M * k)) * 4);
   const h = makeHole(player.x + Math.cos(a) * dist, player.y + Math.sin(a) * dist, player.M * k, false);
@@ -834,7 +835,7 @@ function updateHoles(dt) {
       else { h.wander += rand(-0.5, 0.5) * dt * 10; h.tx = Math.cos(h.wander); h.ty = Math.sin(h.wander); }
       const d = Math.hypot(h.tx, h.ty) || 1;
       dx = h.tx / d; dy = h.ty / d;
-      speed = ms * (target ? 0.66 : 0.3);
+      speed = ms * (target ? 0.74 : 0.3);
     } else if (h.quasar > 0) {
       // Erupting: drifts, sheds mass, sprays jets of plasma.
       h.quasar -= dt;
@@ -887,7 +888,7 @@ function updateHoles(dt) {
       }
       const d = Math.hypot(h.tx, h.ty) || 1;
       dx = h.tx / d; dy = h.ty / d;
-      speed = ms * (0.74 + tierIdx * 0.03);
+      speed = ms * (0.82 + tierIdx * 0.04);
       // Rivals that outgrow the player evaporate (Hawking radiation) so nobody snowballs.
       if (h.M > player.M * 3) grow(h, -h.M * 0.3 * dt);
     }
@@ -927,7 +928,7 @@ function updateHoles(dt) {
   // Keep a population of rivals around the player.
   holes = holes.filter((h) => h.alive && (h.isPlayer || h.boss || Math.hypot(h.x - player.x, h.y - player.y) < Math.max(hd * 4, player.r * 40)));
   if (mode === 'play') {
-    while (holes.filter((h) => !h.isPlayer && !h.boss).length < 7) {
+    while (holes.filter((h) => !h.isPlayer && !h.boss).length < 9) {
       spawnRival(Math.max(hd * 1.4, player.r * 14), Math.max(hd * 2.6, player.r * 26));
     }
   }
@@ -1052,7 +1053,7 @@ function respawn() {
   // Predators nearby lose interest; the boss gets pushed back.
   holes = holes.filter((h) => h.boss || !(h.r > player.r && Math.hypot(h.x - cam.x, h.y - cam.y) < hd * 1.2));
   if (boss && boss.alive) {
-    boss.M = Math.min(boss.M, player.M * 2.3);
+    boss.M = Math.min(boss.M, player.M * BOSS_START);
     boss.r = radiusOf(boss.M);
     const a = Math.atan2(boss.y - cam.y, boss.x - cam.x);
     boss.x = cam.x + Math.cos(a) * hd * 1.5;
@@ -1064,7 +1065,7 @@ function respawn() {
 
 function spawnBoss() {
   const hd = viewHalfDiag(), a = rand(0, TAU);
-  boss = makeHole(player.x + Math.cos(a) * hd * 1.4, player.y + Math.sin(a) * hd * 1.4, player.M * 2.3, false);
+  boss = makeHole(player.x + Math.cos(a) * hd * 1.4, player.y + Math.sin(a) * hd * 1.4, player.M * BOSS_START, false);
   boss.name = BOSS_NAME;
   boss.boss = true;
   holes.push(boss);
