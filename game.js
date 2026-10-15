@@ -367,6 +367,17 @@ function funnySprite([emoji, quip]) {
   return { c, ext: 1.15, quip };
 }
 
+const CAT = (() => {
+  const S = 256, c = makeCanvas(S), g = c.getContext('2d');
+  g.font = `${S * 0.8}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.shadowColor = 'rgba(255,200,120,0.9)';
+  g.shadowBlur = 30;
+  g.fillText('🐱', S / 2, S / 2 + S * 0.05);
+  return c;
+})();
+
 const SPRITES = {
   funny: FUNNY.map(funnySprite),
   dust: Array.from({ length: 6 }, dustSprite),
@@ -568,6 +579,8 @@ let tierIdx = 0, peakMass = 0, eaten = 0, holesEaten = 0;
 let bannerTimer = 0;
 let lives = 3, respawnTimer = 0, deadMass = 0;
 let boss = null, bossTimer = -1, paused = false, wonTime = 0;
+let winT = 0, winReset = false, winStats = null;
+const flashEl = document.getElementById('flash');
 const START_LIVES = 3;
 const BOSS_NAME = 'THE GREAT ATTRACTOR';
 const BOSS_EAT_RATIO = 1.08 * 1.08;  // mass ratio needed to swallow the boss
@@ -606,7 +619,8 @@ function makeHole(x, y, M, isPlayer) {
 }
 
 function viewHalfDiag() {
-  return Math.hypot(W, H) / 2 / cam.z;
+  const targetZ = player ? screenRadius(player.r) / player.r : cam.z;
+  return Math.hypot(W, H) / 2 / Math.min(cam.z, targetZ);
 }
 
 function spawnObject(x, y, refR) {
@@ -633,7 +647,8 @@ function spawnRival(minD, maxD) {
   // Mix of prey and predators around the player's size.
   const big = Math.random() < 0.32 + tierIdx * 0.05;
   const k = big ? rand(1.2, 2.2 + tierIdx * 0.1) : rand(0.25, 0.85);
-  const h = makeHole(player.x + Math.cos(a) * d, player.y + Math.sin(a) * d, player.M * k, false);
+  const dist = Math.max(d, (player.r + radiusOf(player.M * k)) * 4);
+  const h = makeHole(player.x + Math.cos(a) * dist, player.y + Math.sin(a) * dist, player.M * k, false);
   holes.push(h);
 }
 
@@ -654,11 +669,17 @@ function resetWorld() {
   lives = START_LIVES; respawnTimer = 0; boss = null; bossTimer = -1; paused = false;
 }
 
+function calmScene() {
+  resetWorld();
+  holes = [player];
+}
+
 function startGame() {
   initAudio();
   if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
   resetWorld();
   mode = 'play';
+  winReset = false;
   overlayEl.classList.add('hidden');
   setPaused(false);
 }
@@ -674,6 +695,7 @@ addEventListener('mousedown', () => { mouse.down = true; });
 addEventListener('mouseup', () => { mouse.down = false; });
 addEventListener('touchstart', (e) => {
   const t = e.touches[0];
+  inputMode = 'mouse';
   mouse.x = t.clientX * DPR; mouse.y = t.clientY * DPR;
 }, { passive: true });
 addEventListener('touchmove', (e) => {
@@ -693,7 +715,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
     spaceDown = true;
     e.preventDefault();
-    if (mode !== 'play') startGame();
+    if (!e.repeat && !overlayEl.classList.contains('hidden')) startGame();
   }
 });
 addEventListener('keyup', (e) => {
@@ -752,10 +774,10 @@ function goQuasar(h) {
 
 function eatObject(h, o) {
   const dm = o.r * o.r * 0.7;
-  grow(h, dm);
+  if (!h.boss) grow(h, dm);
   feed(h, dm);
   burst(o.x, o.y, h, Math.min(24, 4 + Math.floor(o.r / h.r * 30)), COLORS[o.type], o.r);
-  if (h.isPlayer) {
+  if (h.isPlayer && mode === 'play') {
     eaten++;
     if (o.type === 'funny') {
       quack();
@@ -775,7 +797,7 @@ function updateHoles(dt) {
     let dx, dy, speed;
     h.invuln = Math.max(0, h.invuln - dt);
     if (h.isPlayer) {
-      if (mode !== 'play') { h.vx *= 0.9; h.vy *= 0.9; continue; }
+      if (mode !== 'play' && !h.cat) { h.vx *= 0.9; h.vy *= 0.9; continue; }
       let d;
       if (inputMode === 'keys') {
         dx = 0; dy = 0;
@@ -878,9 +900,9 @@ function updateHoles(dt) {
 
   // Holes eating holes.
   for (const a of holes) {
-    if (!a.alive || a.quasar > 0) continue;
+    if (!a.alive || a.quasar > 0 || a.cat) continue;
     for (const b of holes) {
-      if (a === b || !b.alive || a.r <= b.r * 1.08) continue;
+      if (a === b || !b.alive || b.cat || a.r <= b.r * 1.08) continue;
       if (b.isPlayer && (mode !== 'play' || b.invuln > 0)) continue;
       if (b.boss && !a.isPlayer) continue;
       const d = Math.hypot(a.x - b.x, a.y - b.y);
@@ -903,14 +925,21 @@ function updateHoles(dt) {
   }
 
   // Keep a population of rivals around the player.
-  holes = holes.filter((h) => h.alive && (h.isPlayer || h.boss || Math.hypot(h.x - player.x, h.y - player.y) < hd * 4));
-  while (holes.filter((h) => !h.isPlayer && !h.boss).length < 7) spawnRival(hd * 1.4, hd * 2.6);
+  holes = holes.filter((h) => h.alive && (h.isPlayer || h.boss || Math.hypot(h.x - player.x, h.y - player.y) < Math.max(hd * 4, player.r * 40)));
+  if (mode === 'play') {
+    while (holes.filter((h) => !h.isPlayer && !h.boss).length < 7) {
+      spawnRival(Math.max(hd * 1.4, player.r * 14), Math.max(hd * 2.6, player.r * 26));
+    }
+  }
 }
 
 function updateObjects(dt) {
   const hd = viewHalfDiag();
-  const live = holes.filter((h) => h.alive);
-  const spawnR = hd * 1.6;
+  const live = holes.filter((h) => h.alive && !h.cat);
+  // New matter appears beyond the player's gravity reach (11r), whatever the zoom.
+  const spawnIn = Math.max(hd * 1.05, player.r * 12);
+  const spawnR = Math.max(hd * 1.6, player.r * 20);
+  const despawnR = Math.max(hd * 2.4, player.r * 30);
   const fresh = [];
 
   for (const o of objects) {
@@ -957,14 +986,14 @@ function updateObjects(dt) {
     const target = nearest && o.r < nearest.r ? clamp(1 + 2.2 / (nd * nd), 1, 3.5) : 1;
     o.stretch += (target - o.stretch) * Math.min(1, dt * 6);
     if (nearest) o.sa = Math.atan2(nearest.y - o.y, nearest.x - o.x);
-    if (Math.hypot(o.x - player.x, o.y - player.y) > hd * 2.4) o.dead = true;
+    if (Math.hypot(o.x - player.x, o.y - player.y) > despawnR) o.dead = true;
   }
   objects = objects.filter((o) => !o.dead && o.r > 0.3).concat(fresh);
 
   const target = 420;
   let n = 0;
   while (objects.length < target && n++ < 30) {
-    const a = rand(0, TAU), d = rand(hd * 1.05, spawnR);
+    const a = rand(0, TAU), d = rand(spawnIn, spawnR);
     spawnObject(player.x + Math.cos(a) * d, player.y + Math.sin(a) * d, player.r);
   }
 }
@@ -1011,6 +1040,8 @@ function die(killer) {
       ${bestLine()}
       <div class="cta">CLICK TO BE REBORN</div></div>`;
     overlayEl.classList.remove('hidden');
+    calmScene();
+    mode = 'title';
   }, 1400);
 }
 
@@ -1045,31 +1076,60 @@ function spawnBoss() {
 function win() {
   mode = 'won';
   wonTime = gameTime;
-  slowmo = 0.3;
-  shake = 40;
+  winT = 0;
+  winReset = false;
+  winStats = { eaten, holesEaten, lives };
+  shake = 10;
   boom(true);
   chord();
-  setTimeout(chord, 500);
   const best = loadBest();
   saveBest({
     time: !best.time || wonTime < best.time ? wonTime : best.time,
     mass: !best.mass || peakMass > best.mass ? peakMass : best.mass,
   });
-  setTimeout(() => {
-    if (mode !== 'won') return;
+}
+
+// Ending timeline: 0–2.4s the frozen universe falls into you, then a big bang.
+const WIN_SWALLOW = 2.4, WIN_OVERLAY = 3.4;
+function updateWin(rawDt) {
+  winT += rawDt;
+  if (winT < WIN_SWALLOW) {
+    shake = 4 + 22 * (winT / WIN_SWALLOW);
+    if (audio.ctx) audio.filter.frequency.setTargetAtTime(60, audio.ctx.currentTime, 0.4);
+    return;
+  }
+  if (!winReset) {
+    winReset = true;
+    flashEl.style.transition = 'none';
+    flashEl.style.opacity = 1;
+    void flashEl.offsetWidth;
+    flashEl.style.transition = 'opacity 2.4s ease-out';
+    flashEl.style.opacity = 0;
+    calmScene();
+    player.cat = true;
+    shake = 0;
+    boom(false);
+    setTimeout(() => popup('MEOW.', player.x, player.y - player.r * 6), 600);
+    chord();
+    setTimeout(chord, 350);
+    return;
+  }
+  if (winT >= WIN_OVERLAY && overlayEl.classList.contains('hidden')) {
+    const st = winStats;
     overlayEl.innerHTML = `
-      <h1>YOU ATE THE UNIVERSE</h1>
-      <div><p>${BOSS_NAME} is no more. Neither is anything else.</p>
-      <p class="stat">FINISHED IN ${fmtTime(wonTime)} · ${lives} ${lives === 1 ? 'LIFE' : 'LIVES'} LEFT</p>
-      <p>${eaten} objects devoured &nbsp;·&nbsp; ${holesEaten} black holes consumed</p>
+      <h1 class="small">YOU ATE THE UNIVERSE</h1>
+      <div><p>${BOSS_NAME} is no more. Neither is anything else.<br>…and from the singularity, a new universe is born. You are now a cat.</p>
+      <p class="stat">FINISHED IN ${fmtTime(wonTime)} · ${st.lives} ${st.lives === 1 ? 'LIFE' : 'LIVES'} LEFT</p>
+      <p>${st.eaten} objects devoured &nbsp;·&nbsp; ${st.holesEaten} black holes consumed</p>
       ${bestLine()}
-      <div class="cta">CLICK TO START A NEW UNIVERSE</div></div>`;
+      <div class="cta">CLICK TO PLAY AGAIN · OR JUST BE A CAT FOR A WHILE</div></div>`;
     overlayEl.classList.remove('hidden');
-  }, 2600);
+  }
 }
 
 function fmtMass(M) {
   const v = M * 4.3e4; // scale so the start reads like a stellar-mass black hole... and climbs fast
+  if (v >= 1e15) return v.toExponential(1);
   if (v >= 1e12) return (v / 1e12).toFixed(2) + 'T';
   if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
   if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
@@ -1138,6 +1198,16 @@ function drawWorld() {
       ctx.fill();
     }
   }
+  if (player && player.cat) {
+    const size = player.r * 9, bob = Math.sin(realTime * 2) * player.r * 0.5;
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.translate(player.x, player.y + bob);
+    ctx.rotate(Math.sin(realTime * 1.3) * 0.25);
+    ctx.drawImage(CAT, -size / 2, -size / 2, size, size);
+    ctx.restore();
+    ctx.globalCompositeOperation = 'lighter';
+  }
   for (const p of particles) {
     const a = clamp(p.life / p.max, 0, 1);
     ctx.globalAlpha = a;
@@ -1158,8 +1228,13 @@ function holeMode(h) {
 function screenHoles() {
   const z = cam.z, out = [];
   for (const h of holes) {
-    if (!h.alive) continue;
-    const sx = W / 2 + (h.x - cam.x) * z, sy = H / 2 + (h.y - cam.y) * z, sr = h.r * z;
+    if (!h.alive || h.cat) continue;
+    const sx = W / 2 + (h.x - cam.x) * z, sy = H / 2 + (h.y - cam.y) * z;
+    let sr = h.r * z;
+    if (h.isPlayer && mode === 'won' && !winReset) {
+      const t = clamp(winT / WIN_SWALLOW, 0, 1), e = t * t * t;
+      sr += (Math.hypot(W, H) * 0.62 - sr) * e;
+    }
     const m = sr * 10;
     if (sx < -m || sx > W + m || sy < -m || sy > H + m) continue;
     out.push({ sx, sy, sr, spin: h.spin, mode: holeMode(h), h });
@@ -1219,8 +1294,9 @@ function updateHUD(dt) {
   boardTimer -= dt;
   if (boardTimer > 0) return;
   boardTimer = 0.2;
-  document.body.classList.toggle('playing', mode !== 'title');
-  if (mode === 'title') { hudEl.innerHTML = ''; boardEl.innerHTML = ''; goalEl.innerHTML = ''; return; }
+  const calm = mode === 'title' || (mode === 'won' && winReset);
+  document.body.classList.toggle('playing', !calm);
+  if (calm) { hudEl.innerHTML = ''; boardEl.innerHTML = ''; goalEl.innerHTML = ''; return; }
   const hearts = '♥'.repeat(Math.max(0, lives)) + '<span class="lost">' + '♥'.repeat(START_LIVES - Math.max(0, lives)) + '</span>';
   hudEl.innerHTML = `
     <div class="big">${fmtMass(player.M)} M☉</div>
@@ -1261,7 +1337,8 @@ function frame(now) {
   if (paused) rawDt = 0;
   realTime += rawDt;
   if (mode === 'play') slowmo += (1 - slowmo) * Math.min(1, rawDt * 3);
-  const dt = rawDt * slowmo;
+  const frozen = mode === 'won' && !winReset;
+  const dt = frozen ? 0 : rawDt * slowmo;
   if (mode === 'play') gameTime += dt;
 
   updateHoles(dt);
@@ -1285,22 +1362,19 @@ function frame(now) {
       if (respawnTimer <= 0) respawn();
     }
   }
-  if (mode === 'won') {
-    // The victorious hole swells until it swallows the whole screen.
-    grow(player, player.M * rawDt * 2.2);
-  }
+  if (mode === 'won') updateWin(rawDt);
 
   // Camera follows the player and zooms out as it grows.
   const follow = player.alive ? player : cam;
   cam.x += (follow.x - cam.x) * Math.min(1, rawDt * 5);
   cam.y += (follow.y - cam.y) * Math.min(1, rawDt * 5);
-  if (mode !== 'won') {
+  if (!frozen) {
     const tz = screenRadius(player.r) / player.r;
     cam.z += (tz - cam.z) * Math.min(1, rawDt * 1.5);
   }
   shake *= Math.pow(0.02, rawDt);
 
-  if (audio.ctx) {
+  if (audio.ctx && !frozen) {
     const boosting = mode === 'play' && (mouse.down || spaceDown);
     audio.filter.frequency.setTargetAtTime(boosting ? 900 : 160 + Math.min(400, player.r), audio.ctx.currentTime, 0.1);
   }
@@ -1315,6 +1389,6 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-resetWorld();
+calmScene();
 requestAnimationFrame(frame);
 document.getElementById('titleBest').outerHTML = bestLine() || '<p></p>';

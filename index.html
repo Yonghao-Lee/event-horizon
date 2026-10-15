@@ -46,7 +46,7 @@
   #overlay {
     position: fixed; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: space-between; text-align: center;
-    padding: 13vh 16px 9vh;
+    padding: 10vh 16px calc(6vh + 34px);
     background: radial-gradient(ellipse at center, rgba(2,3,10,0) 0%, rgba(2,3,10,0.75) 75%);
     cursor: pointer;
   }
@@ -58,6 +58,7 @@
     -webkit-background-clip: text; background-clip: text; color: transparent;
     filter: drop-shadow(0 0 24px rgba(255, 140, 40, 0.45));
   }
+  #overlay h1.small { font-size: clamp(26px, 5.5vw, 60px); letter-spacing: 0.22em; }
   #overlay p { color: var(--dim); letter-spacing: 0.15em; font-size: 13px; line-height: 2; margin: 18px 0 0; }
   #overlay .cta { color: var(--fg); margin-top: 34px; font-size: 15px; animation: pulse 1.6s infinite; }
   #overlay .stat { color: var(--gold); font-size: 20px; letter-spacing: 0.1em; }
@@ -94,6 +95,10 @@
   #pause.hidden { display: none; }
   #pause small { display: block; font-size: 12px; letter-spacing: 0.25em; color: var(--dim); margin-top: 14px; text-align: center; }
   body:not(.playing) #goal { display: none; }
+  #flash {
+    position: fixed; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(circle at center, #ffffff 0%, #fff3d6 30%, #ffb35c 60%, rgba(255,120,40,0) 100%);
+  }
   #hint {
     position: fixed; bottom: 14px; left: 0; right: 0; text-align: center;
     font-size: 11px; letter-spacing: 0.2em; color: var(--dim); pointer-events: none;
@@ -105,6 +110,7 @@
 <div id="hud"></div>
 <div id="board"></div>
 <div id="banner"></div>
+<div id="flash"></div>
 <div id="goal"></div>
 <div id="hint">ARROWS / WASD / MOUSE — MOVE &nbsp;·&nbsp; HOLD CLICK / SPACE — BOOST (COSTS MASS) &nbsp;·&nbsp; P — PAUSE</div>
 <div id="pause" class="hidden"><div>PAUSED<small>PRESS P OR CLICK TO RESUME</small></div></div>
